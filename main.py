@@ -61,6 +61,28 @@ def resolve_color(value: str) -> str:
     return None
 
 
+def detect_video_codec() -> str:
+    """Pick the fastest available intermediate codec."""
+    try:
+        result = subprocess.run(["ffmpeg", "-encoders"], capture_output=True, text=True)
+        encoders = result.stdout + result.stderr
+        if "libx264" in encoders:
+            return "libx264"
+        if "libx265" in encoders:
+            return "libx265"
+        if "mpeg4" in encoders:
+            return "mpeg4"
+    except Exception:
+        pass
+    return "ffv1"
+
+
+def intermediate_codec_flags(vcodec: str) -> list:
+    if vcodec == "ffv1":
+        return ["-c:v", "ffv1"]
+    return ["-c:v", vcodec, "-preset", "ultrafast", "-crf", "0"]
+
+
 def cls():
     os.system("cls" if os.name == "nt" else "clear")
 
@@ -247,8 +269,9 @@ def run_iteration(i: int, powers: int, input_file: str, output_file: str, cfg: d
     cmd += ["-i", input_file]
     scale_down = cfg.get("fast_mode", False)
     cmd += ["-vf", build_vf(local_font, counter, scale_down, cfg.get("text_color", "#ff0000"))]
+    vcodec = detect_video_codec()
     if cfg["no_rubberband"]:
-        cmd += ["-c:v", "libx264", "-preset", "ultrafast", "-crf", "0", "-c:a", "pcm_s16le"]
+        cmd += [*intermediate_codec_flags(vcodec), "-c:a", "pcm_s16le"]
     else:
         cmd += [
             "-filter_complex",
@@ -256,7 +279,7 @@ def run_iteration(i: int, powers: int, input_file: str, output_file: str, cfg: d
             ";[a1]amix=1,volume=4,alimiter=2[aout]",
             "-map", "0:v",
             "-map", "[aout]",
-            "-c:v", "libx264", "-preset", "ultrafast", "-crf", "0",
+            *intermediate_codec_flags(vcodec),
             "-c:a", "pcm_s16le",
         ]
 
@@ -372,6 +395,8 @@ def main():
     # Step 1: prep 0.mkv
     print(f"  {Y}Preparing 0.mkv...{RST}")
     prep_vf = "scale=iw/2:ih/2:flags=fast_bilinear" if cfg.get("fast_mode") else None
+    vcodec = detect_video_codec()
+    print(f"  {DIM}Using codec: {vcodec}{RST}")
     prep_cmd = [
         "ffmpeg", "-hide_banner", "-y",
         "-stream_loop", "1", "-i", args.input,
@@ -379,7 +404,7 @@ def main():
     if prep_vf:
         prep_cmd += ["-vf", prep_vf]
     prep_cmd += [
-        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "0",
+        *intermediate_codec_flags(vcodec),
         "-c:a", "flac",
         "-strict", "experimental",
         "-t", str(cfg["duration"]),
@@ -438,3 +463,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+    
